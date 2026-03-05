@@ -18,6 +18,7 @@ package nextflow.ga4gh.tes.executor
 
 import groovy.transform.CompileStatic
 import groovy.transform.PackageScope
+import groovy.transform.TypeCheckingMode
 import groovy.util.logging.Slf4j
 import nextflow.exception.AbortOperationException
 import nextflow.executor.Executor
@@ -107,11 +108,15 @@ class TesExecutor extends Executor implements ExtensionPoint {
     }
 
     protected String getEndpoint() {
-        def result = session.getConfigAttribute('executor.tes.endpoint', null)
-        if( result )
-            log.warn 'Config option `executor.tes.endpoint` is deprecated, use `tes.endpoint` instead'
-        else
-            result = session.config.navigate('tes.endpoint', 'http://localhost:8000')
+        def result = System.getenv('NXF_EXECUTOR_TES_ENDPOINT')
+
+        if (!result) {
+            result = session.config.navigate('executor.tes.endpoint') as String
+            if( result )
+                log.warn 'Config option `executor.tes.endpoint` is deprecated, use `tes.endpoint` instead'
+            else
+                result = session.config.navigate('tes.endpoint', 'http://localhost:8000') as String
+        }
 
         log.debug "[TES] endpoint=$result"
         return result
@@ -163,8 +168,16 @@ class TesExecutor extends Executor implements ExtensionPoint {
      *
      * @return
      */
+    @CompileStatic(TypeCheckingMode.SKIP)
     TaskMonitor createTaskMonitor() {
-        return TaskPollingMonitor.create(session, name, 100, Duration.of('1 sec'))
+        try {
+            def executorConfigClass = Class.forName('nextflow.executor.ExecutorConfig')
+            def config = session.config
+            def createMethod = TaskPollingMonitor.class.getMethod('create', Session, executorConfigClass, String, Integer, Duration)
+            return createMethod.invoke(null, session, config, name, 100, Duration.of('1 sec'))
+        } catch (Exception e) {
+            return TaskPollingMonitor.create(session, name, 100, Duration.of('1 sec'))
+        }
     }
 
 
@@ -179,6 +192,3 @@ class TesExecutor extends Executor implements ExtensionPoint {
         new TesTaskHandler(task, this)
     }
 }
-
-
-
